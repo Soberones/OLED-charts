@@ -27,7 +27,7 @@ A sleek real-time dashboard built with ESP8266 and an OLED display. This project
 
 ## 📦 Libraries Used
 
-- [`GyverOLED`](https://github.com/AlexGyver/GyverOLED)
+- [`GyverOLED`](https://github.com/GyverLibs/GyverOLED)
 - [`WiFiManager`](https://github.com/tzapu/WiFiManager)
 - [`NTPClient`](https://github.com/arduino-libraries/NTPClient)
 - [`ESP8266WebServer`](https://github.com/esp8266/Arduino)
