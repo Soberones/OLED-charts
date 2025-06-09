@@ -101,5 +101,8 @@ The OLED screen cycles through the following:
 #### 🧠 Notes
 
 - Time offset is set to UTC+3 (10800s) — adjust if needed.
+
+`NTPClient timeClient(ntpUDP, "pool.ntp.org", 10800);`
+
 - Weather city and display theme are stored in EEPROM.
 - You can switch display theme (invert mode) via the web UI.
