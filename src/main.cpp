@@ -43,7 +43,7 @@ const int totalSlides = 5;
 bool invertMode = false;
 int contrastValue = 127;
 
-// Прототипы функций
+// Function prototypes
 void loadSettings();
 void handleRoot();
 bool updateData();
@@ -206,7 +206,7 @@ void displayData() {
 
     switch(currentSlide) {
     case 0:
-        // Слайд 1: BTC
+        // Slide 1: BTC
         oled.setCursor(20, 2);
         oled.print("BTC:");
         oled.setCursor(20, 4);
@@ -219,7 +219,7 @@ void displayData() {
         break;
 
     case 1:
-        // Слайд 2: ETH
+        // Slide 2: ETH
         oled.setCursor(20, 2);
         oled.print("ETH:");
         oled.setCursor(20, 4);
@@ -232,7 +232,7 @@ void displayData() {
         break;
 
     case 2:
-        // Слайд 3: Время
+        // Slide 3: Время
         oled.setCursor(20, 2);
         oled.print("Time:");
         oled.setCursor(20, 4);
@@ -240,7 +240,7 @@ void displayData() {
         break;
 
     case 3:
-        // Слайд 4: Погода с иконкой
+        // Slide 4: Weather
         oled.setScale(1);
         oled.setCursor(0, 2);
         oled.print(weatherCity);
@@ -250,7 +250,7 @@ void displayData() {
         oled.print(temperature, 1);
         oled.print("C");
 
-        // Отображение иконки погоды
+        // Display weather description
         oled.setScale(1);
         oled.setCursor(70, 2);
         oled.print(weatherDescription);
