@@ -16,47 +16,59 @@
 GyverOLED<SSD1306_128x64, OLED_BUFFER> oled;
 
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", 10800);  // +3 часа
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 10800);  // смещение +3 часа
 
 ESP8266WebServer server(80);
 
-// ======= НАСТРОЙКИ EEPROM =======
+// ======= EEPROM =======
 const int EEPROM_SIZE = 512;
 
-const int EEPROM_CITY_OFFSET       = 0;
-const int EEPROM_CITY_LEN         = 32;
+const int EEPROM_CITY_OFFSET   = 0;
+const int EEPROM_CITY_LEN      = 32;
 
-const int EEPROM_API_OFFSET       = 40;
-const int EEPROM_API_LEN          = 64;
+const int EEPROM_API_OFFSET    = 40;
+const int EEPROM_API_LEN       = 64;
 
-const int EEPROM_CR1_ID_OFFSET    = 120;
-const int EEPROM_CR1_ID_LEN       = 32;
+const int EEPROM_CR1_OFFSET    = 120;  // "BTCUSDT"
+const int EEPROM_CR1_LEN       = 16;
 
-const int EEPROM_CR1_SYM_OFFSET   = 160;
-const int EEPROM_CR1_SYM_LEN      = 16;
+const int EEPROM_CR2_OFFSET    = 140;  // "ETHUSDT"
+const int EEPROM_CR2_LEN       = 16;
 
-const int EEPROM_CR2_ID_OFFSET    = 180;
-const int EEPROM_CR2_ID_LEN       = 32;
-
-const int EEPROM_CR2_SYM_OFFSET   = 220;
-const int EEPROM_CR2_SYM_LEN      = 16;
-
-// ======= КРИПТА =======
-String crypto1Id     = "bitcoin";   // CoinGecko id
-String crypto1Symbol = "BTC";       // отображаемое имя
-
-String crypto2Id     = "ethereum";
-String crypto2Symbol = "ETH";
+// ======= КРИПТА (Binance) =======
+String crypto1Symbol = "BTCUSDT";
+String crypto2Symbol = "ETHUSDT";
 
 float crypto1History[5] = {0};
 float crypto2History[5] = {0};
 
+// ===== СПИСОК ВАЛЮТ ДЛЯ DROPDOWN =====
+struct CoinOption {
+  const char* symbol;
+  const char* label;
+};
+
+const CoinOption coinOptions[] = {
+  { "BTCUSDT",  "BTC"  },
+  { "ETHUSDT",  "ETH"  },
+  { "BNBUSDT",  "BNB"  },
+  { "SOLUSDT",  "SOL"  },
+  { "DOGEUSDT", "DOGE" },
+  { "XRPUSDT",  "XRP"  },
+  { "ADAUSDT",  "ADA"  },
+  { "TRXUSDT",  "TRX"  },
+  { "LTCUSDT",  "LTC"  },
+  { "LINKUSDT", "LINK" },
+  { "MATICUSDT","MATIC"}
+};
+const int coinOptionsCount = sizeof(coinOptions) / sizeof(coinOptions[0]);
+
 // ======= ПОГОДА =======
 String weatherCity   = "Hrodna";
-String weatherApiKey = "";          // задаётся через веб
+String weatherApiKey = "";      // задаётся с веба
 String weatherUrl    = "";
 
-// ======= ДРУГИЕ ГЛОБАЛЬНЫЕ =======
+// ======= ПРОЧЕЕ =======
 float temperature         = 0.0;
 String weatherDescription = "";
 
@@ -77,7 +89,7 @@ void handleRoot();
 bool updateData();
 void displayData();
 
-float getCryptoRate(const String& id);
+float getCryptoRate(const String& symbol);
 void getWeather();
 
 void handleSettingsUpdate();
@@ -89,6 +101,10 @@ void handleCryptoUpdate();
 void updateHistory(float history[], float newValue);
 void calcMinMax(const float *data, int n, float &minVal, float &maxVal);
 
+void saveStringToEEPROM(int offset, int maxLen, const String& value);
+String readStringFromEEPROM(int offset, int maxLen);
+String getBaseAsset(const String& symbol);
+
 // ================== SETUP ==================
 void setup() {
   Serial.begin(115200);
@@ -96,7 +112,7 @@ void setup() {
 
   loadSettings();
 
-  // Сборка URL погоды
+  // Сборка URL погоды (если будет ключ)
   weatherUrl = "https://api.openweathermap.org/data/2.5/weather?q=" +
                weatherCity + "&appid=" + weatherApiKey + "&units=metric";
 
@@ -127,8 +143,8 @@ void setup() {
   ArduinoOTA.begin();
 
   // HTTP сервер
-  server.on("/", handleRoot);
-  server.on("/refresh",  HTTP_POST, []() {
+  server.on("/",        handleRoot);
+  server.on("/refresh", HTTP_POST, []() {
     updateData();
     server.sendHeader("Location", "/");
     server.send(303);
@@ -172,40 +188,45 @@ void loop() {
   displayData();
 }
 
-// ================== ЛОГИКА ПОЛУЧЕНИЯ ДАННЫХ ==================
-float getCryptoRate(const String& id) {
+// ================== КРИПТА (Binance) ==================
+float getCryptoRate(const String& symbol) {
+  if (symbol.length() == 0) return 0.0f;
+
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient https;
 
-  String url = "https://api.coingecko.com/api/v3/simple/price?ids=" + id + "&vs_currencies=usd";
+  String url = "https://api.binance.com/api/v3/ticker/price?symbol=" + symbol;
 
   if (https.begin(client, url)) {
     int httpCode = https.GET();
     if (httpCode == HTTP_CODE_OK) {
       String payload = https.getString();
-      StaticJsonDocument<512> doc;
+      StaticJsonDocument<256> doc;
       DeserializationError err = deserializeJson(doc, payload);
       https.end();
 
       if (!err) {
-        // ключ JSON = id криптовалюты
-        return doc[id]["usd"].as<float>();
+        String priceStr = doc["price"].as<String>();
+        float price = priceStr.toFloat();
+        return price;
       } else {
-        Serial.print("JSON error: ");
+        Serial.print("Binance JSON error: ");
         Serial.println(err.c_str());
       }
     } else {
-      Serial.print("HTTP error: ");
+      Serial.print("Binance HTTP error: ");
       Serial.println(httpCode);
     }
     https.end();
   } else {
-    Serial.println("HTTPS begin failed");
+    Serial.println("HTTPS begin failed (Binance)");
   }
+
   return 0.0f;
 }
 
+// ================== ПОГОДА (OpenWeather) ==================
 void getWeather() {
   if (weatherApiKey.length() == 0) {
     Serial.println("No OpenWeather API key set");
@@ -243,6 +264,7 @@ void getWeather() {
   }
 }
 
+// ================== ЛОГИКА ОБНОВЛЕНИЯ ==================
 void updateHistory(float history[], float newValue) {
   for (int i = 4; i > 0; i--) {
     history[i] = history[i - 1];
@@ -251,8 +273,8 @@ void updateHistory(float history[], float newValue) {
 }
 
 bool updateData() {
-  float newCr1 = getCryptoRate(crypto1Id);
-  float newCr2 = getCryptoRate(crypto2Id);
+  float newCr1 = getCryptoRate(crypto1Symbol);
+  float newCr2 = getCryptoRate(crypto2Symbol);
 
   if (newCr1 > 0 && newCr2 > 0) {
     updateHistory(crypto1History, newCr1);
@@ -265,7 +287,7 @@ bool updateData() {
   return false;
 }
 
-// ================== ОТРИСОВКА OLED ==================
+// ================== OLED ==================
 void calcMinMax(const float *data, int n, float &minVal, float &maxVal) {
   if (n <= 0) {
     minVal = 0;
@@ -283,6 +305,14 @@ void calcMinMax(const float *data, int n, float &minVal, float &maxVal) {
   }
 }
 
+String getBaseAsset(const String& symbol) {
+  // Если заканчивается на "USDT" — отрезаем
+  if (symbol.endsWith("USDT")) {
+    return symbol.substring(0, symbol.length() - 4);
+  }
+  return symbol;
+}
+
 void displayData() {
   oled.clear();
 
@@ -294,12 +324,12 @@ void displayData() {
 
   switch (currentSlide) {
     case 0: {
-      // ===== Слайд 1: Crypto1 =====
+      // ===== Слайд 0: Crypto1 =====
       oled.setScale(1);
       oled.setCursor(0, 2);
       oled.print("   ");
-      oled.print(crypto1Symbol);
-      oled.print(" / USD");
+      oled.print(getBaseAsset(crypto1Symbol));
+      oled.print(" / USDT");
 
       oled.setScale(2);
       oled.setCursor(10, 4);
@@ -313,12 +343,12 @@ void displayData() {
     }
 
     case 1: {
-      // ===== Слайд 2: Crypto2 =====
+      // ===== Слайд 1: Crypto2 =====
       oled.setScale(1);
       oled.setCursor(0, 2);
       oled.print("   ");
-      oled.print(crypto2Symbol);
-      oled.print(" / USD");
+      oled.print(getBaseAsset(crypto2Symbol));
+      oled.print(" / USDT");
 
       oled.setScale(2);
       oled.setCursor(10, 4);
@@ -332,7 +362,7 @@ void displayData() {
     }
 
     case 2: {
-      // ===== Слайд 3: Время =====
+      // ===== Слайд 2: Время =====
       oled.setScale(1);
       oled.setCursor(0, 2);
       oled.print("   Time (NTP)");
@@ -345,7 +375,7 @@ void displayData() {
     }
 
     case 3: {
-      // ===== Слайд 4: Погода =====
+      // ===== Слайд 3: Погода =====
       oled.setScale(1);
       oled.setCursor(0, 2);
       oled.print(weatherCity);
@@ -366,12 +396,12 @@ void displayData() {
     }
 
     case 4: {
-      // ===== Слайд 5: График двух крипт =====
+      // ===== Слайд 4: График двух крипт =====
       oled.setScale(1);
       oled.setCursor(0, 1);
-      oled.print(crypto1Symbol);
+      oled.print(getBaseAsset(crypto1Symbol));
       oled.print(" & ");
-      oled.print(crypto2Symbol);
+      oled.print(getBaseAsset(crypto2Symbol));
       oled.print(" (5)");
 
       int x0 = 5;
@@ -401,10 +431,10 @@ void displayData() {
       for (int i = 0; i < 5; i++) {
         int xp = x0 + 10 + i * 25;
         int yp = y0 - (int)((crypto2History[4 - i] - min2) * scale2);
-        oled.dot(xp, yp, 1);
-        oled.dot(xp + 1, yp, 1);
-        oled.dot(xp, yp + 1, 1);
-        oled.dot(xp + 1, yp + 1, 1);
+        oled.dot(xp,   yp,   1);
+        oled.dot(xp+1, yp,   1);
+        oled.dot(xp,   yp+1, 1);
+        oled.dot(xp+1, yp+1, 1);
       }
 
       break;
@@ -414,17 +444,14 @@ void displayData() {
   oled.update();
 }
 
-// ================== EEPROM НАСТРОЙКИ ==================
+// ================== EEPROM ==================
 void saveStringToEEPROM(int offset, int maxLen, const String& value) {
   int i = 0;
-  // записываем строку
   for (; i < maxLen - 1 && i < (int)value.length(); i++) {
     EEPROM.write(offset + i, value[i]);
   }
-  // нуль-терминатор
   EEPROM.write(offset + i, 0);
   i++;
-  // чистим остаток
   for (; i < maxLen; i++) {
     EEPROM.write(offset + i, 0);
   }
@@ -441,45 +468,32 @@ String readStringFromEEPROM(int offset, int maxLen) {
 }
 
 void saveSettings() {
-  saveStringToEEPROM(EEPROM_CITY_OFFSET,     EEPROM_CITY_LEN,     weatherCity);
-  saveStringToEEPROM(EEPROM_API_OFFSET,      EEPROM_API_LEN,      weatherApiKey);
-  saveStringToEEPROM(EEPROM_CR1_ID_OFFSET,   EEPROM_CR1_ID_LEN,   crypto1Id);
-  saveStringToEEPROM(EEPROM_CR1_SYM_OFFSET,  EEPROM_CR1_SYM_LEN,  crypto1Symbol);
-  saveStringToEEPROM(EEPROM_CR2_ID_OFFSET,   EEPROM_CR2_ID_LEN,   crypto2Id);
-  saveStringToEEPROM(EEPROM_CR2_SYM_OFFSET,  EEPROM_CR2_SYM_LEN,  crypto2Symbol);
+  saveStringToEEPROM(EEPROM_CITY_OFFSET, EEPROM_CITY_LEN, weatherCity);
+  saveStringToEEPROM(EEPROM_API_OFFSET,  EEPROM_API_LEN,  weatherApiKey);
+  saveStringToEEPROM(EEPROM_CR1_OFFSET,  EEPROM_CR1_LEN,  crypto1Symbol);
+  saveStringToEEPROM(EEPROM_CR2_OFFSET,  EEPROM_CR2_LEN,  crypto2Symbol);
   EEPROM.commit();
 }
 
 void loadSettings() {
-  String c = readStringFromEEPROM(EEPROM_CITY_OFFSET, EEPROM_CITY_LEN);
+  String c  = readStringFromEEPROM(EEPROM_CITY_OFFSET, EEPROM_CITY_LEN);
   if (c.length() > 0) weatherCity = c;
 
-  String k = readStringFromEEPROM(EEPROM_API_OFFSET, EEPROM_API_LEN);
+  String k  = readStringFromEEPROM(EEPROM_API_OFFSET, EEPROM_API_LEN);
   if (k.length() > 0) weatherApiKey = k;
 
-  String id1 = readStringFromEEPROM(EEPROM_CR1_ID_OFFSET, EEPROM_CR1_ID_LEN);
-  if (id1.length() > 0) crypto1Id = id1;
+  String s1 = readStringFromEEPROM(EEPROM_CR1_OFFSET, EEPROM_CR1_LEN);
+  if (s1.length() > 0) crypto1Symbol = s1;
 
-  String sym1 = readStringFromEEPROM(EEPROM_CR1_SYM_OFFSET, EEPROM_CR1_SYM_LEN);
-  if (sym1.length() > 0) crypto1Symbol = sym1;
-
-  String id2 = readStringFromEEPROM(EEPROM_CR2_ID_OFFSET, EEPROM_CR2_ID_LEN);
-  if (id2.length() > 0) crypto2Id = id2;
-
-  String sym2 = readStringFromEEPROM(EEPROM_CR2_SYM_OFFSET, EEPROM_CR2_SYM_LEN);
-  if (sym2.length() > 0) crypto2Symbol = sym2;
-
-  // Нормализуем
-  crypto1Id.toLowerCase();
-  crypto2Id.toLowerCase();
-  crypto1Symbol.toUpperCase();
-  crypto2Symbol.toUpperCase();
+  String s2 = readStringFromEEPROM(EEPROM_CR2_OFFSET, EEPROM_CR2_LEN);
+  if (s2.length() > 0) crypto2Symbol = s2;
 }
 
-// ================== HANDLERS HTTP ==================
+// ================== HTTP HANDLERS ==================
 void handleSettingsUpdate() {
   if (server.hasArg("city")) {
     weatherCity = server.arg("city");
+    weatherCity.trim();
     saveSettings();
 
     weatherUrl = "https://api.openweathermap.org/data/2.5/weather?q=" +
@@ -514,6 +528,7 @@ void handleContrastUpdate() {
 void handleApiKeyUpdate() {
   if (server.hasArg("apikey")) {
     weatherApiKey = server.arg("apikey");
+    weatherApiKey.trim();
     saveSettings();
 
     weatherUrl = "https://api.openweathermap.org/data/2.5/weather?q=" +
@@ -528,28 +543,14 @@ void handleApiKeyUpdate() {
 void handleCryptoUpdate() {
   bool changed = false;
 
-  if (server.hasArg("crypto1id")) {
-    crypto1Id = server.arg("crypto1id");
-    crypto1Id.trim();
-    crypto1Id.toLowerCase();
-    changed = true;
-  }
-  if (server.hasArg("crypto1sym")) {
-    crypto1Symbol = server.arg("crypto1sym");
+  if (server.hasArg("crypto1")) {
+    crypto1Symbol = server.arg("crypto1");
     crypto1Symbol.trim();
-    crypto1Symbol.toUpperCase();
     changed = true;
   }
-  if (server.hasArg("crypto2id")) {
-    crypto2Id = server.arg("crypto2id");
-    crypto2Id.trim();
-    crypto2Id.toLowerCase();
-    changed = true;
-  }
-  if (server.hasArg("crypto2sym")) {
-    crypto2Symbol = server.arg("crypto2sym");
+  if (server.hasArg("crypto2")) {
+    crypto2Symbol = server.arg("crypto2");
     crypto2Symbol.trim();
-    crypto2Symbol.toUpperCase();
     changed = true;
   }
 
@@ -561,6 +562,10 @@ void handleCryptoUpdate() {
     }
     saveSettings();
     updateData();
+
+    // Сразу показываем первую валюту на OLED
+    currentSlide = 0;
+    lastSlideChange = millis();
   }
 
   server.sendHeader("Location", "/");
@@ -592,7 +597,7 @@ void handleRoot() {
   }
 
   String html;
-  html.reserve(4000);
+  html.reserve(5000);
 
   html += "<!DOCTYPE html><html><head>";
   html += "<meta charset='UTF-8'>";
@@ -611,9 +616,9 @@ void handleRoot() {
   html += ".emoji{font-size:18px;margin-right:4px;}";
   html += ".weather{margin-top:8px;font-size:12px;opacity:0.8;}";
   html += "svg{width:100%;height:90px;margin:10px 0 4px;}";
-  html += ".buttons{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}";
-  html += "input,button{border-radius:999px;border:none;padding:8px 14px;font-size:12px;outline:none;}";
-  html += "input{background:#101018;color:white;}";
+  html += ".buttons{display:flex;flex-direction:column;gap:8px;margin-top:10px;}";
+  html += "input,button,select{border-radius:999px;border:none;padding:8px 14px;font-size:12px;outline:none;}";
+  html += "input,select{background:#101018;color:white;}";
   html += "button{background:#4caf50;color:white;cursor:pointer;transition:transform .1s,box-shadow .1s,background .1s;}";
   html += "button:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,0.4);background:#5ecf62;}";
   html += "button.secondary{background:#30303c;}";
@@ -624,56 +629,56 @@ void handleRoot() {
 
   html += "<div class='wrapper'><div class='card'>";
   html += "<h1>Finance Monitor</h1>";
-  html += "<div class='subtitle'>NodeMCU • OLED dashboard</div>";
+  html += "<div class='subtitle'>ESP8266 • OLED • Binance + Weather</div>";
 
-  // ====== Две крипты ======
+  // ===== Две крипты =====
   html += "<div class='grid'>";
-  // Crypto1
+
+  // Crypto1 tile
   html += "<div class='tile'>";
   html += "<div class='label'><span class='emoji'>₿</span>";
-  html += crypto1Symbol;
-  html += " / USD</div>";
+  html += getBaseAsset(crypto1Symbol);
+  html += " / USDT</div>";
   html += "<div class='value'>$";
   html += String(crypto1History[0], 2);
   html += " ";
   html += trend1;
   html += "</div>";
-  html += "<div class='weather' style='font-size:11px;opacity:0.6;'>id: ";
-  html += crypto1Id;
+  html += "<div class='weather' style='font-size:11px;opacity:0.6;'>symbol: ";
+  html += crypto1Symbol;
   html += "</div>";
   html += "</div>";
 
-  // Crypto2
+  // Crypto2 tile
   html += "<div class='tile'>";
   html += "<div class='label'><span class='emoji'>Ξ</span>";
-  html += crypto2Symbol;
-  html += " / USD</div>";
+  html += getBaseAsset(crypto2Symbol);
+  html += " / USDT</div>";
   html += "<div class='value'>$";
   html += String(crypto2History[0], 2);
   html += " ";
   html += trend2;
   html += "</div>";
-  html += "<div class='weather' style='font-size:11px;opacity:0.6;'>id: ";
-  html += crypto2Id;
+  html += "<div class='weather' style='font-size:11px;opacity:0.6;'>symbol: ";
+  html += crypto2Symbol;
   html += "</div>";
   html += "</div>";
 
   html += "</div>"; // .grid
 
-  // ====== График первой крипты ======
+  // ===== График первой крипты =====
   html += "<div class='tile'>";
-  html += "<div class='label'>"; 
-  html += crypto1Symbol;
+  html += "<div class='label'>";
+  html += getBaseAsset(crypto1Symbol);
   html += " history (5 points)</div>";
   html += "<svg viewBox='0 0 120 70'>";
   html += "<polyline fill='none' stroke='#4caf50' stroke-width='2' points='";
   html += points;
-  html += "' />";
-  html += "</svg>";
+  html += "' /></svg>";
   html += "<div class='label'>Relative last 5 updates</div>";
   html += "</div>";
 
-  // ====== Погода ======
+  // ===== Погода =====
   html += "<div class='tile' style='margin-top:12px;'>";
   html += "<div class='label'><span class='emoji'>☁</span>Weather</div>";
   html += "<div class='value'>";
@@ -686,12 +691,12 @@ void handleRoot() {
   html += "</div>";
   html += "</div>";
 
-  // ====== КНОПКИ И ФОРМЫ ======
+  // ===== ФОРМЫ / КНОПКИ =====
   html += "<div class='buttons'>";
 
   // Refresh
   html += "<form method='POST' action='/refresh'>";
-  html += "<button type='submit'>🔄 Refresh</button>";
+  html += "<button type='submit'>🔄 Refresh now</button>";
   html += "</form>";
 
   // Invert
@@ -723,36 +728,53 @@ void handleRoot() {
   html += "<input name='apikey' placeholder='OpenWeather API key' value='";
   html += weatherApiKey;
   html += "'>";
-  html += "<small>Key is stored in EEPROM</small>";
+  html += "<small>Key stored in EEPROM (for weather)</small>";
   html += "<button type='submit' class='secondary'>Save API key</button>";
   html += "</div>";
   html += "</form>";
 
-  // Crypto settings
+  // Crypto selection (dropdown)
   html += "<form method='POST' action='/crypto'>";
   html += "<div class='form-row'>";
-  html += "<input name='crypto1id' placeholder='Crypto 1 id (coingecko)' value='";
-  html += crypto1Id;
-  html += "'>";
-  html += "<input name='crypto1sym' placeholder='Crypto 1 symbol' value='";
-  html += crypto1Symbol;
-  html += "'>";
-  html += "<input name='crypto2id' placeholder='Crypto 2 id (coingecko)' value='";
-  html += crypto2Id;
-  html += "'>";
-  html += "<input name='crypto2sym' placeholder='Crypto 2 symbol' value='";
-  html += crypto2Symbol;
-  html += "'>";
-  html += "<small>Example ids: bitcoin, ethereum, dogecoin, litecoin...</small>";
-  html += "<button type='submit' class='secondary'>Save cryptos</button>";
+  html += "<small>Crypto 1 (left tile / first slide)</small>";
+  html += "<select name='crypto1'>";
+  for (int i = 0; i < coinOptionsCount; i++) {
+    html += "<option value='";
+    html += coinOptions[i].symbol;
+    html += "'";
+    if (crypto1Symbol == coinOptions[i].symbol) html += " selected";
+    html += ">";
+    html += coinOptions[i].label;
+    html += " (";
+    html += coinOptions[i].symbol;
+    html += ")</option>";
+  }
+  html += "</select>";
+
+  html += "<small>Crypto 2 (right tile / second slide)</small>";
+  html += "<select name='crypto2'>";
+  for (int i = 0; i < coinOptionsCount; i++) {
+    html += "<option value='";
+    html += coinOptions[i].symbol;
+    html += "'";
+    if (crypto2Symbol == coinOptions[i].symbol) html += " selected";
+    html += ">";
+    html += coinOptions[i].label;
+    html += " (";
+    html += coinOptions[i].symbol;
+    html += ")</option>";
+  }
+  html += "</select>";
+
+  html += "<button type='submit' class='secondary'>Save cryptos & update</button>";
   html += "</div>";
   html += "</form>";
 
   html += "</div>"; // .buttons
 
-  html += "<div class='footer'>Auto refresh every 30 sec • Served by ESP8266</div>";
+  html += "<div class='footer'>Auto refresh every 30 sec • Binance public API • ESP8266</div>";
 
-  html += "</div></div>"; // card, wrapper
+  html += "</div></div>"; // .card .wrapper
 
   html += "<script>setInterval(function(){location.reload();},30000);</script>";
   html += "</body></html>";
