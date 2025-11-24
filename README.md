@@ -1,29 +1,27 @@
 # 📊 ESP8266 OLED Crypto, Weather & Time Dashboard
 
-A sleek real-time dashboard built with ESP8266 and an OLED display. This project shows cryptocurrency prices (BTC & ETH), weather data, and the current time—rotating elegantly on the screen. It also includes a web interface for monitoring and configuration.
+OLED mini-dashboard for ESP8266 that shows Binance prices, OpenWeather data, NTP time, and ships with a web UI for configuration.
 
 #### 3D model here 👉 [MakerWorld](https://makerworld.com/en/models/1393341-desktop-wifi-informer-esp8266-oled-ssd1306#profileId-1443943)
 
 ## ✨ Features
 
-- 📶 **Wi-Fi Auto Setup** via [WiFiManager](https://github.com/tzapu/WiFiManager)
-- 🕒 **Time Sync** using [NTPClient](https://github.com/arduino-libraries/NTPClient)
-- ☁️ **Weather Info** from [OpenWeatherMap](https://openweathermap.org/)
-- 💸 **Crypto Prices** (BTC/USD & ETH/USD) from [CoinGecko API](https://www.coingecko.com/)
-- 🖥 **OLED Display Slides** with data rotation:
-  - BTC price
-  - ETH price
+- 📶 Auto Wi‑Fi setup via [WiFiManager](https://github.com/tzapu/WiFiManager) (AP `NodeMCU-Finance`)
+- 🕒 NTP time (UTC+3 offset by default) shown on OLED
+- ☁️ Weather from OpenWeather (city and API key via web UI, stored in EEPROM)
+- 💸 Crypto from Binance (defaults BTCUSDT/ETHUSDT; selectable list stored in EEPROM)
+- 🖥 OLED slides (rotate every 8 s):
+  - Crypto1 price
+  - Crypto2 price
   - Time
-  - Temperature & Weather
-  - Simple line graph (BTC) and dots (ETH)
-- 🌐 **Web UI** with:
-  - Live data (text + SVG chart)
-  - City input
-  - Theme inversion toggle
-  - Contrast control
-  - Manual data refresh
-- 🚀 **OTA Updates** (Over-the-Air firmware upload)
-- 🔧 **EEPROM Settings Persistence**
+  - Weather
+  - Chart of last 5 points for both coins (line + dots)
+- 🌐 Web page:
+  - Live values + SVG chart for first coin
+  - Forms: refresh data, invert OLED, set contrast (0–255), city, API key, two coin selections
+  - Auto-refresh every 30 s
+- 🚀 OTA firmware updates
+- 💾 All settings (city, API key, crypto pairs, invert/contrast) saved to EEPROM
 
 ## 📦 Libraries Used
 
@@ -38,39 +36,23 @@ A sleek real-time dashboard built with ESP8266 and an OLED display. This project
 
 ## ⚙️ Getting Started
 
-### 1. 🔄 Clone and Open the Project
+### 1) Flash
+- Open the project in [PlatformIO](https://platformio.org/) (env `nodemcuv2`, 115200 baud, see `platformio.ini`).
+- Build and flash over USB.
 
-Use the Arduino IDE or [PlatformIO](https://platformio.org/). Select a board like `NodeMCU 1.0`.
+### 2) First boot & Wi‑Fi
+- After boot the ESP starts AP `NodeMCU-Finance`.
+- Connect and the WiFiManager portal opens. Pick your Wi‑Fi and password; it will be saved.
 
-### 2. 📥 Install Dependencies
+### 3) Configure via web
+- Find the ESP IP (serial monitor or router) and open `http://<ip>/`.
+- Enter city and OpenWeather API key (get one [here](https://home.openweathermap.org/api_keys)), save.
+- Choose crypto pairs (from Binance list) and save.
+- Optional: invert OLED, set contrast (0–255), manual refresh.
 
-Install all listed libraries above using Library Manager or in `platformio.ini`.
-
-### 3. 🔑 Set Weather API Key
-
-In your code, insert your OpenWeatherMap API key:
-
-```
-String weatherApiKey = "YOUR_API_KEY_HERE";
-```
-
-Sign up and get it [Here](https://home.openweathermap.org/api_keys).
-
-### 4. ⬆️ Upload & Boot
-
-- Connect the board.
-- Upload via USB.
-- On first boot, it will create a Wi-Fi AP: NodeMCU-Finance.
-
-### 5. 📡 Connect & Configure
-
-- Connect to the ESP's AP.
-- A captive portal will open.
-- Choose your Wi-Fi network and connect.
-
-### 6. 🌍 Web Dashboard
-
-Once online, OLED shows data and you can access the web interface by entering the device’s IP in your browser (e.g., http://192.168.1.45).
+### 4) Data cadence
+- Crypto and weather fetched every 5 minutes; OLED slides switch every 8 seconds.
+- Browser page auto-reloads every 30 seconds (Refresh button triggers immediate fetch).
 
 ## 🖼 OLED Slide Preview
 
@@ -90,7 +72,7 @@ The OLED screen cycles through the following:
 
 ## 🌐 Web UI (Charts, Buttons, Inputs)
 
-![Web UI](https://imgur.com/saONzd7.jpg)
+![Web UI](https://i.imgur.com/6IMjLav.png)
 
 ---
 
@@ -100,9 +82,7 @@ The OLED screen cycles through the following:
 
 #### 🧠 Notes
 
-- Time offset is set to UTC+3 (10800s) — adjust if needed.
-
-`NTPClient timeClient(ntpUDP, "pool.ntp.org", 10800);`
-
-- Weather city and display theme are stored in EEPROM.
-- You can switch display theme (invert mode) via the web UI.
+- Time offset: UTC+3 (`NTPClient timeClient(ntpUDP, "pool.ntp.org", 10800);`). Adjust for your timezone.
+- Binance data via public HTTPS `api.binance.com`; without network you’ll see `0`.
+- Weather is skipped without an API key.
+- All entered values (city, API key, cryptos, invert/contrast) persist in EEPROM.
