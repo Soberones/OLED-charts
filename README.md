@@ -37,20 +37,24 @@ OLED mini-dashboard for ESP8266 that shows Binance prices, OpenWeather data, NTP
 ## ⚙️ Getting Started
 
 ### 1) Flash
+
 - Open the project in [PlatformIO](https://platformio.org/) (env `nodemcuv2`, 115200 baud, see `platformio.ini`).
 - Build and flash over USB.
 
 ### 2) First boot & Wi‑Fi
+
 - After boot the ESP starts AP `NodeMCU-Finance`.
 - Connect and the WiFiManager portal opens. Pick your Wi‑Fi and password; it will be saved.
 
 ### 3) Configure via web
+
 - Find the ESP IP (serial monitor or router) and open `http://<ip>/`.
 - Enter city and OpenWeather API key (get one [here](https://home.openweathermap.org/api_keys)), save.
 - Choose crypto pairs (from Binance list) and save.
 - Optional: invert OLED, set contrast (0–255), manual refresh.
 
 ### 4) Data cadence
+
 - Crypto and weather fetched every 5 minutes; OLED slides switch every 8 seconds.
 - Browser page auto-reloads every 30 seconds (Refresh button triggers immediate fetch).
 
@@ -72,7 +76,7 @@ The OLED screen cycles through the following:
 
 ## 🌐 Web UI (Charts, Buttons, Inputs)
 
-![Web UI](https://i.imgur.com/6IMjLav.png)
+![Web UI](https://i.imgur.com/wu4mW6k.png)
 
 ---
 
